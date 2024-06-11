@@ -1,0 +1,23 @@
+{
+  "name": "b2-node-thumbnail-demo",
+  "version": "1.0.0",
+  "description": "Sample app that creates a thumbnail for each image that is created in Backblaze B2.",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "type": "module",
+  "author": "Pat Patterson <pat@backblaze.com>",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.591.0",
+    "@smithy/middleware-endpoint": "^3.0.1",
+    "body-parser": "^1.20.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.1",
+    "http-status-codes": "^2.3.0",
+    "sharp": "^0.33.4",
+    "uuid": "^9.0.1"
+  }
+}
