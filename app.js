@@ -2,17 +2,21 @@ import bodyParser from "body-parser";
 import express from "express";
 import sharp from "sharp";
 import {StatusCodes} from "http-status-codes";
-import {ListBucketsCommand, S3} from "@aws-sdk/client-s3";
-import {getEndpointFromInstructions} from "@smithy/middleware-endpoint";
+import {
+  GetObjectCommand,
+  HeadBucketCommand,
+  PutObjectCommand,
+  S3Client
+} from "@aws-sdk/client-s3";
+import {NodeHttpHandler} from "@smithy/node-http-handler";
 import {createHmac} from "node:crypto";
-import dotenv from "dotenv"
+import {createRequire} from "node:module";
+import dotenv from "dotenv";
+import {loadConfig} from "./config.js";
+import {isValidSignature} from "./security.js";
 
-// Get the resolved S3 endpoint - very useful for debugging!
-// See https://github.com/aws/aws-sdk-js-v3/issues/4122#issuecomment-1298968804
-async function getS3Endpoint(client) {
-  const command = new ListBucketsCommand({});
-  return getEndpointFromInstructions(command.input, ListBucketsCommand, client.config);
-}
+const require = createRequire(import.meta.url);
+const pkg = require("./package.json");
 
 // Log a message to the console and throw an error
 function throwError(response, status, message, detail) {
@@ -29,11 +33,11 @@ function verifySignature(request, response, buffer, _encoding) {
     const signature = request.headers['x-bz-event-notification-signature'];
     const pair = signature.split('=');
     if (!pair || pair.length !== 2) {
-      throwError(response, 401, 'Invalid signature format', signature);
+      throwError(response, 401, 'Invalid signature format', 'malformed signature');
     }
     const version = pair[0];
     if (version !== 'v1') {
-      throwError(response, 401, 'Invalid signature version', version);
+      throwError(response, 401, 'Invalid signature version', 'unsupported signature version');
     }
 
     // Now calculate the HMAC and compare it with the one sent in the header
@@ -41,11 +45,11 @@ function verifySignature(request, response, buffer, _encoding) {
     const calculatedSig = createHmac('sha256', SIGNING_SECRET)
         .update(buffer)
         .digest('hex');
-    if (receivedSig !== calculatedSig) {
+    if (!isValidSignature(receivedSig, calculatedSig)) {
       throwError(response,
           401,
           'Invalid signature',
-          `Received ${receivedSig}; calculated ${calculatedSig}`
+          'signature mismatch'
       );
     }
   } else {
@@ -63,10 +67,10 @@ async function createThumbnail(bucket, keyBase, extension) {
 
     // Get the image from B2 (returns a readable stream as the body)
     console.log(`Fetching image from b2://${bucket}/${key}`);
-    const obj = await client.getObject({
+    const obj = await client.send(new GetObjectCommand({
       Bucket: bucket,
       Key: key
-    });
+    }));
 
     // Create a Sharp transformer into which we can stream image data
     const transformer = sharp()
@@ -91,12 +95,18 @@ async function createThumbnail(bucket, keyBase, extension) {
 
     // Write the thumbnail buffer to the same B2 bucket as the original
     console.log(`Writing thumbnail to b2://${bucket}/${outputKey}`);
-    await client.putObject({
+    await client.send(new PutObjectCommand({
       Bucket: bucket,
       Key: outputKey,
       Body: thumbnail,
       ContentType: outputContentType
-    });
+    }));
+
+    if (B2_PUBLIC_URL_BASE) {
+      const encodedOutputKey = outputKey.split("/").map(encodeURIComponent).join("/");
+      const publicUrl = `${B2_PUBLIC_URL_BASE.replace(/\/$/, "")}/${encodedOutputKey}`;
+      console.log(`Thumbnail available at ${publicUrl}`);
+    }
   } catch (err) {
     console.log(err);
   }
@@ -123,25 +133,54 @@ const IMAGE_EXTENSIONS = [
 // In production, we want to give environment variables precedence
 dotenv.config({ override: (process.env.NODE_ENV === 'development') });
 
-// Read configuration from the environment
-const RESIZE_OPTIONS = JSON.parse(process.env.RESIZE_OPTIONS);
-const SIGNING_SECRET = process.env.SIGNING_SECRET;
+const S3_CONNECTION_TIMEOUT_MS = 5000;
+const S3_REQUEST_TIMEOUT_MS = 30000;
+const S3_MAX_ATTEMPTS = 3;
+
+let config;
+try {
+  config = loadConfig();
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
+
+for (const {oldName, newName} of config.deprecatedEnvVars) {
+  console.warn(`${oldName} is deprecated; use ${newName} instead.`);
+}
+
+const B2_BUCKET_NAME = config.bucketName;
+const B2_PUBLIC_URL_BASE = config.publicUrlBase;
+const RESIZE_OPTIONS = config.resizeOptions;
+const SIGNING_SECRET = config.signingSecret;
 
 // Create an S3 client object
-//
-// The S3 client constructor will look for configuration in environment variables,
-// then the shared credentials file, etc.
-// See https://docs.aws.amazon.com/sdk-for-javascript/v3/developer-guide/setting-credentials-node.html
-const client = new S3();
+const client = new S3Client({
+  endpoint: config.s3Endpoint,
+  region: config.region,
+  credentials: {
+    accessKeyId: config.applicationKeyId,
+    secretAccessKey: config.applicationKey
+  },
+  requestHandler: new NodeHttpHandler({
+    connectionTimeout: S3_CONNECTION_TIMEOUT_MS,
+    requestTimeout: S3_REQUEST_TIMEOUT_MS
+  }),
+  maxAttempts: S3_MAX_ATTEMPTS,
+  customUserAgent: `${pkg.name}/${pkg.version} (backblaze-b2-samples)`
+});
 
-// Sanity check - we should always be able to list buckets
-try {
-  const response = await client.listBuckets();
-  const endpoint = await getS3Endpoint(client);
-  console.log(`Successfully called S3 service at ${endpoint.url}: ${response.Buckets.length} buckets listed`);
-} catch (error) {
-  console.error(`Error listing buckets: ${error}`);
-  process.exit(1);
+console.log(`Configured S3 service endpoint: ${config.s3Endpoint}`);
+
+// Sanity check the configured bucket when it is supplied.
+if (B2_BUCKET_NAME) {
+  try {
+    await client.send(new HeadBucketCommand({Bucket: B2_BUCKET_NAME}));
+    console.log(`${B2_BUCKET_NAME} bucket is accessible`);
+  } catch (error) {
+    console.error(`Error accessing bucket ${B2_BUCKET_NAME}: ${error}`);
+    process.exit(1);
+  }
 }
 
 // Set up Express

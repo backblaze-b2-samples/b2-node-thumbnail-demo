@@ -18,18 +18,23 @@ Be sure to copy the application key as soon as you create it, as you will not be
 
 ## Configuration
 
-Copy [`.env.template`](.env.template) to `.env`, then paste in your application 
-key, endpoint, etc.:
+Copy [`.env.example`](.env.example) to `.env`, then paste in your application
+key, bucket, etc. The `B2_*` names are the canonical configuration names.
+During rollout from an older deployment, the app also accepts the deprecated
+`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, and
+`AWS_ENDPOINT_URL` names as fallbacks. If both old and new names are present,
+the `B2_*` value takes precedence.
 
-```dotenv
-AWS_ACCESS_KEY_ID=<Your Backblaze B2 Application Key ID>
-AWS_SECRET_ACCESS_KEY=<Your Backblaze B2 Application Key>
-AWS_ENDPOINT_URL=https://<Your Backblaze B2 bucket endpoint>
-AWS_REGION=<Your Backblaze B2 bucket region>
-RESIZE_OPTIONS={"width": 240, "withoutEnlargement": true}
-SIGNING_SECRET=<Your Event Notification rule signing secret>
-NODE_ENV=development
-```
+`B2_BUCKET_NAME` is recommended for new deployments because it enables a startup
+bucket access check. Event processing still uses the `bucketName` in each
+Backblaze Event Notification payload, so one service can process valid image
+events from multiple buckets.
+
+`B2_PUBLIC_URL_BASE` is optional. Set it only when the bucket is public and you
+want the app to log the public URL for each generated thumbnail. For the
+standard Backblaze file URL, use
+`https://f<account-id>.backblazeb2.com/file/<bucket-name>` and replace the
+placeholders with your account and bucket values.
 
 ## Running the App Locally
 
@@ -45,14 +50,16 @@ Start the app:
 npm start
 ```
 
-By default, the app will verify that it can access Backblaze B2, then start 
+At startup, the app logs the configured Backblaze B2 S3 endpoint. If
+`B2_BUCKET_NAME` is set, it also verifies access to that bucket before
 listening for requests on port 3000:
 
 ```console
 > b2-node-thumbnail-demo@1.0.0 start
 > node app.js
 
-Successfully called S3 service at https://s3.us-west-004.backblazeb2.com/: 61 buckets listed
+Configured S3 service endpoint: https://s3.<your-region>.backblazeb2.com
+<your-bucket> bucket is accessible
 Listening on port 3000
 ```
 
@@ -64,7 +71,8 @@ You can set the PORT environment variable to override the default, e.g.:
 > b2-node-thumbnail-demo@1.0.0 start
 > node app.js
 
-Successfully called S3 service at https://s3.us-west-004.backblazeb2.com/: 61 buckets listed
+Configured S3 service endpoint: https://s3.<your-region>.backblazeb2.com
+<your-bucket> bucket is accessible
 Listening on port 80
 ```
 
@@ -120,9 +128,10 @@ When running the app, you must:
 
 * Use the `-p` flag to bind port `3000` of the container to an
   available port on the host.
-* Specify values for the environment variables listed in `.env.template`, via 
-multiple uses of the `-e`/`--env` flag or by using the `--env-file` flag to load
-the environment variables from a file.
+* Specify values for the required environment variables listed in
+  `.env.example`, via multiple uses of the `-e`/`--env` flag or by using the
+  `--env-file` flag to load the environment variables from a file. Optional
+  variables in `.env.example` may be omitted.
 
 For example, to use port `80` on the host and load environment variables from 
 the `.env` file, you would run:
@@ -151,9 +160,9 @@ You should be able to run the app on any cloud compute provider. Note that
 you must configure the port and environment variables similarly to running 
 the app locally, and make a note of your app's public URL.
 
-Check the application log for the `Successfully called S3 service` message. 
-If you do not see this, then look for an error message, and check the app
-configuration.
+Check the application log for the `Configured S3 service endpoint` message. If
+`B2_BUCKET_NAME` is set, also check for the bucket access message. If you do not
+see these, then look for an error message, and check the app configuration.
 
 ## Creating an Event Notification Rule
 

@@ -5,14 +5,14 @@
   "main": "app.js",
   "scripts": {
     "start": "node app.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test"
   },
   "type": "module",
   "author": "Pat Patterson <pat@backblaze.com>",
   "license": "MIT",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.591.0",
-    "@smithy/middleware-endpoint": "^3.0.1",
+    "@smithy/node-http-handler": "^3.0.0",
     "body-parser": "^1.20.2",
     "dotenv": "^16.4.5",
     "express": "^4.19.1",
