@@ -11,13 +11,13 @@
   "author": "Pat Patterson <pat@backblaze.com>",
   "license": "MIT",
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.591.0",
-    "@smithy/middleware-endpoint": "^3.0.1",
-    "body-parser": "^1.20.2",
+    "@aws-sdk/client-s3": "^3.1111.0",
+    "@smithy/middleware-endpoint": "^4.7.2",
+    "body-parser": "^1.20.6",
     "dotenv": "^16.4.5",
-    "express": "^4.19.1",
+    "express": "^4.22.2",
     "http-status-codes": "^2.3.0",
-    "sharp": "^0.33.4",
-    "uuid": "^9.0.1"
+    "sharp": "^0.35.3",
+    "uuid": "^11.1.1"
   }
 }
